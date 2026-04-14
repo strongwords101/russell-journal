@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Russell Journal</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f7f5f0;
+      --surface: #ffffff;
+      --border: #e2ddd6;
+      --text: #1a1814;
+      --text-muted: #7a746c;
+      --accent: #2c5f2e;
+      --accent-light: #e8f0e9;
+      --danger: #8b2020;
+      --danger-light: #fdf0f0;
+      --warn: #7a4f00;
+      --warn-bg: #fff8ee;
+      --radius: 10px;
+      --shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem 1rem 4rem;
+    }
+
+    .container { max-width: 720px; margin: 0 auto; }
+
+    header { text-align: center; margin-bottom: 2.5rem; }
+    header h1 { font-size: 1.75rem; font-weight: normal; letter-spacing: -0.01em; }
+    header p { margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted); font-style: italic; }
+
+    /* ── Entry form ── */
+    .entry-form {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      box-shadow: var(--shadow);
+      margin-bottom: 2.5rem;
+    }
+
+    .prompt-block { margin-bottom: 1.75rem; }
+
+    .prompt-block label {
+      display: block;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    .prompt-block .prompt-text {
+      font-size: 1.15rem;
+      color: var(--text);
+      margin-bottom: 0.75rem;
+    }
+
+    /* ── Situation input ── */
+    .situation-wrap { position: relative; }
+
+    input#situation {
+      width: 100%;
+      padding: 0.85rem 1rem;
+      font-family: Georgia, serif;
+      font-size: 1.05rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      letter-spacing: 0.01em;
+    }
+
+    input#situation::placeholder { color: #b8b2a8; font-style: italic; }
+
+    input#situation:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-light);
+    }
+
+    .char-count {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.45rem;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      font-family: Georgia, serif;
+      transition: color 0.2s;
+      min-height: 1.2em;
+    }
+
+    .char-count .remaining { font-variant-numeric: tabular-nums; }
+    .char-count.warn { color: var(--warn); }
+    .char-count.over  { color: var(--danger); font-weight: bold; }
+
+    .char-bar {
+      flex: 1;
+      height: 3px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+
+    .char-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width 0.1s, background 0.2s;
+    }
+
+    .char-bar-fill.warn { background: var(--warn); }
+    .char-bar-fill.over { background: var(--danger); }
+
+    /* ── Textareas ── */
+    textarea {
+      width: 100%;
+      min-height: 120px;
+      padding: 0.85rem 1rem;
+      font-family: Georgia, serif;
+      font-size: 1rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      resize: vertical;
+      line-height: 1.6;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-light);
+    }
+
+    textarea::placeholder { color: #b8b2a8; font-style: italic; }
+
+    .divider { height: 1px; background: var(--border); margin: 1.75rem 0; }
+
+    /* ── Form actions ── */
+    .form-actions {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      min-height: 2.4rem;
+    }
+
+    .btn-save {
+      padding: 0.65rem 1.75rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-family: Georgia, serif;
+      font-size: 0.95rem;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+      transition: opacity 0.15s;
+    }
+
+    .btn-save:hover { opacity: 0.88; }
+    .btn-save:active { opacity: 0.75; }
+    .btn-save:disabled { opacity: 0.45; cursor: default; }
+
+    .btn-clear {
+      background: none;
+      border: none;
+      font-family: Georgia, serif;
+      font-size: 0.88rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.4rem 0;
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    .btn-clear:hover { color: var(--text); }
+
+    .error-msg { color: var(--danger); font-size: 0.88rem; margin-left: auto; }
+
+    /* ── Close nudge ── */
+    .close-nudge {
+      display: none;
+      width: 100%;
+      text-align: center;
+      padding: 0.6rem 0;
+      font-size: 0.95rem;
+      color: var(--accent);
+      letter-spacing: 0.02em;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .close-nudge strong { font-weight: normal; font-style: italic; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+    /* ── Past entries ── */
+    .entries-header {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .entries-header h2 {
+      font-size: 1rem;
+      font-weight: normal;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+
+    .entry-count { font-size: 0.8rem; color: var(--text-muted); }
+
+    .entries-list { display: flex; flex-direction: column; gap: 0.65rem; }
+
+    /* ── Entry card (collapsible) ── */
+    .entry-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .entry-toggle {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      background: none;
+      border: none;
+      cursor: pointer;
+      text-align: left;
+      font-family: Georgia, serif;
+      transition: background 0.12s;
+    }
+
+    .entry-toggle:hover { background: var(--bg); }
+
+    .entry-toggle-left { flex: 1; min-width: 0; }
+
+    .entry-situation {
+      display: block;
+      font-size: 1rem;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 0.2rem;
+    }
+
+    .entry-date {
+      display: block;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    .entry-chevron {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      transition: transform 0.2s;
+      user-select: none;
+    }
+
+    .entry-card.open .entry-chevron { transform: rotate(90deg); }
+
+    .entry-body {
+      display: none;
+      padding: 0 1.25rem 1.25rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .entry-card.open .entry-body { display: block; }
+
+    .entry-body-inner { padding-top: 1.1rem; }
+
+    .entry-section { margin-bottom: 1.1rem; }
+    .entry-section:last-child { margin-bottom: 0; }
+
+    .entry-section-label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+    }
+
+    .entry-section-text {
+      font-size: 0.97rem;
+      line-height: 1.65;
+      white-space: pre-wrap;
+      color: var(--text);
+    }
+
+    .entry-divider { height: 1px; background: var(--border); margin: 1rem 0; }
+
+    .entry-footer {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 1.1rem;
+      padding-top: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+
+    .btn-delete {
+      background: none;
+      border: none;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border-radius: 4px;
+      font-family: Georgia, serif;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .btn-delete:hover { background: var(--danger-light); color: var(--danger); }
+
+    .empty-state {
+      text-align: center;
+      color: var(--text-muted);
+      font-style: italic;
+      font-size: 0.95rem;
+      padding: 2rem 0;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Russell Journal</h1>
+    <p>"What are the facts, and what is the truth that the facts bear out?"</p>
+  </header>
+
+  <div class="entry-form">
+
+    <!-- The Situation -->
+    <div class="prompt-block">
+      <label>The Situation</label>
+      <div class="prompt-text">Name it.</div>
+      <div class="situation-wrap">
+        <input type="text" id="situation" maxlength="50"
+               placeholder="e.g. Starting new [name] project"
+               autocomplete="off" spellcheck="true"
+               oninput="updateCharCount()">
+        <div class="char-count" id="charCount">
+          <div class="char-bar"><div class="char-bar-fill" id="charBarFill"></div></div>
+          <span class="remaining" id="charRemaining">50</span> remaining
+        </div>
+      </div>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Q1 -->
+    <div class="prompt-block">
+      <label>Question 1</label>
+      <div class="prompt-text">What are the facts?</div>
+      <textarea id="facts" placeholder="List only what is objectively true. No interpretations, no feelings — just facts." autocomplete="off" spellcheck="true"></textarea>
+    </div>
+
+    <div class="divider"></div>
+
+    <!-- Q2 -->
+    <div class="prompt-block">
+      <label>Question 2</label>
+      <div class="prompt-text">What is the truth that the facts bear out?</div>
+      <textarea id="truth" placeholder="Given those facts alone, what does the evidence actually show?" autocomplete="off" spellcheck="true"></textarea>
+    </div>
+
+    <div class="form-actions" id="formActions">
+      <button class="btn-save" id="saveBtn" onclick="saveEntry()">Save entry</button>
+      <button class="btn-clear" onclick="clearForm()">Clear</button>
+      <span class="error-msg" id="errorMsg"></span>
+    </div>
+
+    <div class="close-nudge" id="closeNudge">
+      Saved. <strong>Now close this tab and move on.</strong>
+    </div>
+
+  </div>
+
+  <div class="entries-header">
+    <h2>Past entries</h2>
+    <span class="entry-count" id="entryCount"></span>
+  </div>
+
+  <div class="entries-list" id="entriesList">
+    <div class="empty-state">Loading entries…</div>
+  </div>
+
+</div>
+
+<script>
+  const API = "/api";
+  const SITUATION_MAX = 50;
+
+  // ── Character counter ──────────────────────────────────────────
+  function updateCharCount() {
+    const val = document.getElementById("situation").value;
+    const used = val.length;
+    const remaining = SITUATION_MAX - used;
+    const pct = (used / SITUATION_MAX) * 100;
+
+    const countEl   = document.getElementById("charCount");
+    const remEl     = document.getElementById("charRemaining");
+    const fillEl    = document.getElementById("charBarFill");
+
+    remEl.textContent = remaining;
+    fillEl.style.width = pct + "%";
+
+    const warn = remaining <= 10 && remaining > 0;
+    const full = remaining === 0;
+
+    countEl.className  = "char-count" + (full ? " over" : warn ? " warn" : "");
+    fillEl.className   = "char-bar-fill" + (full ? " over" : warn ? " warn" : "");
+  }
+
+  // ── Date formatting ────────────────────────────────────────────
+  function formatDate(iso) {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-AU", {
+      weekday: "short", year: "numeric", month: "short", day: "numeric",
+      hour: "2-digit", minute: "2-digit"
+    });
+  }
+
+  // ── Load & render entries ──────────────────────────────────────
+  async function loadEntries() {
+    try {
+      const res = await fetch(`${API}/entries`);
+      const entries = await res.json();
+      renderEntries(entries);
+    } catch {
+      document.getElementById("entriesList").innerHTML =
+        '<div class="empty-state">Could not connect to server.</div>';
+    }
+  }
+
+  function renderEntries(entries) {
+    const list  = document.getElementById("entriesList");
+    const count = document.getElementById("entryCount");
+
+    count.textContent = entries.length === 0 ? "" :
+      `${entries.length} entr${entries.length === 1 ? "y" : "ies"}`;
+
+    if (entries.length === 0) {
+      list.innerHTML = '<div class="empty-state">No entries yet. Write your first one above.</div>';
+      return;
+    }
+
+    list.innerHTML = entries.map(e => {
+      const situation = e.situation || "—";
+      const hasFacts = !!e.facts;
+      const hasTruth = !!e.truth;
+      return `
+        <div class="entry-card" id="card-${e.id}">
+          <button class="entry-toggle" onclick="toggleEntry('${e.id}')">
+            <div class="entry-toggle-left">
+              <span class="entry-situation">${escHtml(situation)}</span>
+              <span class="entry-date">${formatDate(e.timestamp)}</span>
+            </div>
+            <span class="entry-chevron">&#9658;</span>
+          </button>
+          <div class="entry-body" id="body-${e.id}">
+            <div class="entry-body-inner">
+              ${hasFacts ? `
+                <div class="entry-section">
+                  <div class="entry-section-label">Facts</div>
+                  <div class="entry-section-text">${escHtml(e.facts)}</div>
+                </div>
+              ` : ""}
+              ${hasFacts && hasTruth ? '<div class="entry-divider"></div>' : ""}
+              ${hasTruth ? `
+                <div class="entry-section">
+                  <div class="entry-section-label">Truth</div>
+                  <div class="entry-section-text">${escHtml(e.truth)}</div>
+                </div>
+              ` : ""}
+              <div class="entry-footer">
+                <button class="btn-delete" onclick="deleteEntry('${e.id}')">Delete</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function toggleEntry(id) {
+    const card = document.getElementById(`card-${id}`);
+    card.classList.toggle("open");
+  }
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  }
+
+  // ── Save ───────────────────────────────────────────────────────
+  async function saveEntry() {
+    const situation = document.getElementById("situation").value.trim();
+    const facts     = document.getElementById("facts").value.trim();
+    const truth     = document.getElementById("truth").value.trim();
+    const saveBtn   = document.getElementById("saveBtn");
+    const errorMsg  = document.getElementById("errorMsg");
+
+    errorMsg.textContent = "";
+
+    if (!situation && !facts && !truth) {
+      errorMsg.textContent = "Write something first.";
+      return;
+    }
+
+    saveBtn.disabled = true;
+    try {
+      const res = await fetch(`${API}/entries`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ situation, facts, truth })
+      });
+      if (!res.ok) throw new Error("Save failed");
+
+      clearForm();
+      showNudge();
+      loadEntries();
+    } catch {
+      errorMsg.textContent = "Could not save — is the server running?";
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+
+  function showNudge() {
+    const actions = document.getElementById("formActions");
+    const nudge   = document.getElementById("closeNudge");
+    actions.style.display = "none";
+    nudge.style.display   = "block";
+    setTimeout(() => {
+      nudge.style.display   = "none";
+      actions.style.display = "flex";
+    }, 4000);
+  }
+
+  // ── Delete ─────────────────────────────────────────────────────
+  async function deleteEntry(id) {
+    if (!confirm("Delete this entry?")) return;
+    try {
+      await fetch(`${API}/entries/${id}`, { method: "DELETE" });
+      loadEntries();
+    } catch {
+      alert("Could not delete entry.");
+    }
+  }
+
+  // ── Clear form ─────────────────────────────────────────────────
+  function clearForm() {
+    document.getElementById("situation").value = "";
+    document.getElementById("facts").value     = "";
+    document.getElementById("truth").value     = "";
+    document.getElementById("errorMsg").textContent = "";
+    updateCharCount();
+    document.getElementById("situation").focus();
+  }
+
+  // Ctrl+Enter / Cmd+Enter to save
+  document.addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") saveEntry();
+  });
+
+  updateCharCount();
+  loadEntries();
+</script>
+</body>
+</html>
