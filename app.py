@@ -114,13 +114,25 @@ SUGGEST_SYSTEM = (
     "If they show a genuine problem, say that plainly too. "
     "2-3 sentences, no more.\n\n"
     "Second — suggest possible next steps, grounded only in what the facts support. "
+    "Do not invent options or assume resources, pathways, or constraints that are not stated. "
+    "Work strictly within what has been provided. "
     "If there is no real problem, one step is enough (e.g. 'Accept the situation and get on with your day'). "
     "If there is a real problem, offer up to three concrete steps. "
-    "If the facts are too vague to act on meaningfully, say so.\n\n"
+    "If the facts are too thin to suggest meaningful action, say so and recommend the person add more context.\n\n"
     "Return your response as JSON with exactly two fields: "
     "\"truth\" (string, 2-3 sentences) and \"steps\" (array of strings, 0-3 items). "
     "Return only the JSON object — no markdown, no code fences, no other text."
 )
+
+
+def _extract_json(raw):
+    """Strip markdown code fences if Claude wrapped the JSON in them."""
+    import re
+    raw = raw.strip()
+    # Remove ```json ... ``` or ``` ... ``` wrappers
+    raw = re.sub(r"^```(?:json)?\s*", "", raw)
+    raw = re.sub(r"\s*```$", "", raw)
+    return raw.strip()
 
 
 def get_suggestion(situation, facts):
@@ -133,9 +145,14 @@ def get_suggestion(situation, facts):
         system=SUGGEST_SYSTEM,
         messages=[{"role": "user", "content": user_msg}]
     )
-    raw = msg.content[0].text.strip()
+    raw = _extract_json(msg.content[0].text)
     try:
-        return json.loads(raw)
+        result = json.loads(raw)
+        # Ensure expected keys exist
+        return {
+            "truth": result.get("truth", ""),
+            "steps": result.get("steps", [])
+        }
     except json.JSONDecodeError:
         return {"truth": raw, "steps": []}
 
