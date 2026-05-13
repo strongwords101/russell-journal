@@ -337,6 +337,111 @@
       font-size: 0.95rem;
       padding: 2rem 0;
     }
+
+    /* ── Ask Claude ── */
+    .ask-section {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin: 1.75rem 0;
+    }
+
+    .ask-rule { flex: 1; height: 1px; background: var(--border); }
+
+    .btn-ask {
+      flex-shrink: 0;
+      padding: 0.4rem 1.1rem;
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-family: Georgia, serif;
+      font-size: 0.83rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s, background 0.15s;
+      white-space: nowrap;
+    }
+
+    .btn-ask:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+    .btn-ask:disabled { opacity: 0.45; cursor: default; }
+
+    .ask-error { font-size: 0.82rem; color: var(--danger); }
+
+    /* ── Suggested label on Q2 ── */
+    .suggested-tag {
+      display: none;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--accent);
+      background: var(--accent-light);
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      margin-bottom: 0.5rem;
+    }
+
+    .suggested-tag.visible { display: inline-block; }
+
+    textarea.is-suggested { font-style: italic; color: var(--text-muted); }
+
+    /* ── Steps panel ── */
+    .steps-panel {
+      margin-top: 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.25rem;
+    }
+
+    .steps-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.75rem;
+    }
+
+    .steps-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+    }
+
+    .btn-dismiss {
+      background: none;
+      border: none;
+      font-family: Georgia, serif;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+
+    .steps-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .steps-list li {
+      font-size: 0.95rem;
+      line-height: 1.55;
+      color: var(--text);
+      padding-left: 1.3rem;
+      position: relative;
+    }
+
+    .steps-list li::before {
+      content: "\2192";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+      font-size: 0.85rem;
+    }
   </style>
 </head>
 <body>
@@ -374,13 +479,31 @@
       <textarea id="facts" placeholder="List only what is objectively true. No interpretations, no feelings — just facts." autocomplete="off" spellcheck="true"></textarea>
     </div>
 
-    <div class="divider"></div>
+    <!-- Ask Claude -->
+    <div class="ask-section">
+      <div class="ask-rule"></div>
+      <button class="btn-ask" id="askBtn" onclick="askClaude()">
+        <span id="askBtnText">What do the facts say?</span>
+      </button>
+      <div class="ask-rule"></div>
+    </div>
+    <span class="ask-error" id="askError"></span>
 
     <!-- Q2 -->
     <div class="prompt-block">
       <label>Question 2</label>
       <div class="prompt-text">What is the truth that the facts bear out?</div>
+      <span class="suggested-tag" id="suggestedTag">Claude's suggestion — edit freely</span>
       <textarea id="truth" placeholder="Given those facts alone, what does the evidence actually show?" autocomplete="off" spellcheck="true"></textarea>
+    </div>
+
+    <!-- Steps panel -->
+    <div class="steps-panel" id="stepsPanel" hidden>
+      <div class="steps-header">
+        <span class="steps-title">Possible next steps</span>
+        <button class="btn-dismiss" onclick="dismissSteps()">Dismiss</button>
+      </div>
+      <ul class="steps-list" id="stepsList"></ul>
     </div>
 
     <div class="form-actions" id="formActions">
@@ -570,11 +693,78 @@
     }
   }
 
+  // ── Ask Claude ─────────────────────────────────────────────────
+  async function askClaude() {
+    const situation  = document.getElementById("situation").value.trim();
+    const facts      = document.getElementById("facts").value.trim();
+    const askBtn     = document.getElementById("askBtn");
+    const askBtnText = document.getElementById("askBtnText");
+    const askError   = document.getElementById("askError");
+
+    askError.textContent = "";
+
+    if (!facts) {
+      askError.textContent = "Add some facts first.";
+      return;
+    }
+
+    askBtn.disabled        = true;
+    askBtnText.textContent = "Thinking…";
+
+    try {
+      const res  = await fetch("/api/suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ situation, facts })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        askError.textContent = data.error || "Something went wrong.";
+        return;
+      }
+
+      // Pre-fill Q2
+      const truthEl = document.getElementById("truth");
+      truthEl.value = data.truth || "";
+      truthEl.classList.add("is-suggested");
+      document.getElementById("suggestedTag").classList.add("visible");
+
+      // Remove suggested styling as soon as user edits
+      truthEl.addEventListener("input", function () {
+        truthEl.classList.remove("is-suggested");
+        document.getElementById("suggestedTag").classList.remove("visible");
+      }, { once: true });
+
+      // Show steps
+      if (data.steps && data.steps.length > 0) {
+        document.getElementById("stepsList").innerHTML =
+          data.steps.map(s => `<li>${escHtml(s)}</li>`).join("");
+        document.getElementById("stepsPanel").hidden = false;
+      }
+
+    } catch {
+      askError.textContent = "Could not reach the server.";
+    } finally {
+      askBtn.disabled        = false;
+      askBtnText.textContent = "What do the facts say?";
+    }
+  }
+
+  function dismissSteps() {
+    document.getElementById("stepsPanel").hidden = true;
+  }
+
   // ── Clear form ─────────────────────────────────────────────────
   function clearForm() {
     document.getElementById("situation").value = "";
     document.getElementById("facts").value     = "";
     document.getElementById("truth").value     = "";
+    document.getElementById("truth").classList.remove("is-suggested");
+    document.getElementById("suggestedTag").classList.remove("visible");
+    document.getElementById("stepsPanel").hidden = true;
+    document.getElementById("stepsList").innerHTML = "";
+    document.getElementById("askError").textContent = "";
     document.getElementById("errorMsg").textContent = "";
     updateCharCount();
     document.getElementById("situation").focus();

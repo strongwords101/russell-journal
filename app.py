@@ -6,6 +6,16 @@ from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
+# Load .env file if present (local dev only — never committed to git)
+_env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+if os.path.exists(_env_path):
+    with open(_env_path) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _, _v = _line.partition("=")
+                os.environ.setdefault(_k.strip(), _v.strip())
+
 # ── Storage ───────────────────────────────────────────────────────────────────
 # On Railway: DATABASE_URL is set automatically when you add a Postgres addon.
 # Locally:    falls back to a JSON file in the project directory.
@@ -91,6 +101,45 @@ def remove_entry(entry_id):
         return True
 
 
+# ── Claude suggestion ─────────────────────────────────────────────────────────
+
+SUGGEST_SYSTEM = (
+    "You are a clear-headed, unsentimental advisor. "
+    "Your job is to apply one principle: strip away emotion and state only what the facts objectively show.\n\n"
+    "You will be given a situation (the problem as named) and a list of facts. Do the following two things:\n\n"
+    "First — state what the facts actually demonstrate. Be direct and plain. "
+    "Do not reassure, speculate beyond what is stated, or use therapeutic language. "
+    "If the facts are thin or vague, say so as part of your conclusion. "
+    "If they show no real problem, say so plainly. "
+    "If they show a genuine problem, say that plainly too. "
+    "2-3 sentences, no more.\n\n"
+    "Second — suggest possible next steps, grounded only in what the facts support. "
+    "If there is no real problem, one step is enough (e.g. 'Accept the situation and get on with your day'). "
+    "If there is a real problem, offer up to three concrete steps. "
+    "If the facts are too vague to act on meaningfully, say so.\n\n"
+    "Return your response as JSON with exactly two fields: "
+    "\"truth\" (string, 2-3 sentences) and \"steps\" (array of strings, 0-3 items). "
+    "Return only the JSON object — no markdown, no code fences, no other text."
+)
+
+
+def get_suggestion(situation, facts):
+    import anthropic
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    user_msg = f"Situation: {situation}\nFacts: {facts}\nWhat do the facts bear out?"
+    msg = client.messages.create(
+        model="claude-sonnet-4-5",
+        max_tokens=400,
+        system=SUGGEST_SYSTEM,
+        messages=[{"role": "user", "content": user_msg}]
+    )
+    raw = msg.content[0].text.strip()
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {"truth": raw, "steps": []}
+
+
 # ── HTTP handler ──────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
@@ -136,7 +185,25 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
-        if urlparse(self.path).path != "/api/entries":
+        path = urlparse(self.path).path
+
+        if path == "/api/suggest":
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
+            situation = body.get("situation", "").strip()
+            facts     = body.get("facts", "").strip()
+            if not facts:
+                self.send_json({"error": "Add some facts first."}, 400)
+                return
+            if not os.environ.get("ANTHROPIC_API_KEY"):
+                self.send_json({"error": "ANTHROPIC_API_KEY not configured."}, 500)
+                return
+            try:
+                self.send_json(get_suggestion(situation, facts))
+            except Exception as e:
+                self.send_json({"error": str(e)}, 500)
+            return
+
+        if path != "/api/entries":
             self.send_response(404)
             self.end_headers()
             return
