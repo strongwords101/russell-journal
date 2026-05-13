@@ -384,64 +384,8 @@
 
     textarea.is-suggested { font-style: italic; color: var(--text-muted); }
 
-    /* ── Steps panel ── */
-    .steps-panel {
-      margin-top: 1rem;
-      background: var(--bg);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 1rem 1.25rem;
-    }
-
-    .steps-header {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 0.75rem;
-    }
-
-    .steps-title {
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--text-muted);
-    }
-
-    .btn-dismiss {
-      background: none;
-      border: none;
-      font-family: Georgia, serif;
-      font-size: 0.78rem;
-      color: var(--text-muted);
-      cursor: pointer;
-      text-decoration: underline;
-      text-underline-offset: 2px;
-    }
-
-    .steps-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 0.5rem;
-    }
-
-    .steps-list li {
-      font-size: 0.95rem;
-      line-height: 1.55;
-      color: var(--text);
-      padding-left: 1.3rem;
-      position: relative;
-    }
-
-    .steps-list li::before {
-      content: "\2192";
-      position: absolute;
-      left: 0;
-      color: var(--accent);
-      font-size: 0.85rem;
-    }
+    /* ── Steps textarea ── */
+    #steps { min-height: 90px; }
   </style>
 </head>
 <body>
@@ -497,13 +441,14 @@
       <textarea id="truth" placeholder="Given those facts alone, what does the evidence actually show?" autocomplete="off" spellcheck="true"></textarea>
     </div>
 
-    <!-- Steps panel -->
-    <div class="steps-panel" id="stepsPanel" hidden>
-      <div class="steps-header">
-        <span class="steps-title">Possible next steps</span>
-        <button class="btn-dismiss" onclick="dismissSteps()">Dismiss</button>
-      </div>
-      <ul class="steps-list" id="stepsList"></ul>
+    <div class="divider"></div>
+
+    <!-- Q3: Next Steps -->
+    <div class="prompt-block">
+      <label>Next Steps</label>
+      <div class="prompt-text">What will I do about it?</div>
+      <span class="suggested-tag" id="suggestedStepsTag">Claude's suggestion — edit freely</span>
+      <textarea id="steps" placeholder="What actions will you take?" autocomplete="off" spellcheck="true"></textarea>
     </div>
 
     <div class="form-actions" id="formActions">
@@ -615,6 +560,13 @@
                   <div class="entry-section-text">${escHtml(e.truth)}</div>
                 </div>
               ` : ""}
+              ${e.steps ? '<div class="entry-divider"></div>' : ""}
+              ${e.steps ? `
+                <div class="entry-section">
+                  <div class="entry-section-label">Next Steps</div>
+                  <div class="entry-section-text">${escHtml(e.steps)}</div>
+                </div>
+              ` : ""}
               <div class="entry-footer">
                 <button class="btn-delete" onclick="deleteEntry('${e.id}')">Delete</button>
               </div>
@@ -642,12 +594,13 @@
     const situation = document.getElementById("situation").value.trim();
     const facts     = document.getElementById("facts").value.trim();
     const truth     = document.getElementById("truth").value.trim();
+    const steps     = document.getElementById("steps").value.trim();
     const saveBtn   = document.getElementById("saveBtn");
     const errorMsg  = document.getElementById("errorMsg");
 
     errorMsg.textContent = "";
 
-    if (!situation && !facts && !truth) {
+    if (!situation && !facts && !truth && !steps) {
       errorMsg.textContent = "Write something first.";
       return;
     }
@@ -657,7 +610,7 @@
       const res = await fetch(`${API}/entries`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ situation, facts, truth })
+        body: JSON.stringify({ situation, facts, truth, steps })
       });
       if (!res.ok) throw new Error("Save failed");
 
@@ -724,23 +677,26 @@
         return;
       }
 
-      // Pre-fill Q2
+      // Pre-fill Q2 (truth)
       const truthEl = document.getElementById("truth");
       truthEl.value = data.truth || "";
       truthEl.classList.add("is-suggested");
       document.getElementById("suggestedTag").classList.add("visible");
-
-      // Remove suggested styling as soon as user edits
       truthEl.addEventListener("input", function () {
         truthEl.classList.remove("is-suggested");
         document.getElementById("suggestedTag").classList.remove("visible");
       }, { once: true });
 
-      // Show steps
+      // Pre-fill Q3 (steps)
       if (data.steps && data.steps.length > 0) {
-        document.getElementById("stepsList").innerHTML =
-          data.steps.map(s => `<li>${escHtml(s)}</li>`).join("");
-        document.getElementById("stepsPanel").hidden = false;
+        const stepsEl = document.getElementById("steps");
+        stepsEl.value = data.steps.join("\n");
+        stepsEl.classList.add("is-suggested");
+        document.getElementById("suggestedStepsTag").classList.add("visible");
+        stepsEl.addEventListener("input", function () {
+          stepsEl.classList.remove("is-suggested");
+          document.getElementById("suggestedStepsTag").classList.remove("visible");
+        }, { once: true });
       }
 
     } catch {
@@ -751,19 +707,15 @@
     }
   }
 
-  function dismissSteps() {
-    document.getElementById("stepsPanel").hidden = true;
-  }
-
   // ── Clear form ─────────────────────────────────────────────────
   function clearForm() {
-    document.getElementById("situation").value = "";
-    document.getElementById("facts").value     = "";
-    document.getElementById("truth").value     = "";
-    document.getElementById("truth").classList.remove("is-suggested");
+    ["situation","facts","truth","steps"].forEach(id => {
+      const el = document.getElementById(id);
+      el.value = "";
+      el.classList.remove("is-suggested");
+    });
     document.getElementById("suggestedTag").classList.remove("visible");
-    document.getElementById("stepsPanel").hidden = true;
-    document.getElementById("stepsList").innerHTML = "";
+    document.getElementById("suggestedStepsTag").classList.remove("visible");
     document.getElementById("askError").textContent = "";
     document.getElementById("errorMsg").textContent = "";
     updateCharCount();

@@ -33,7 +33,7 @@ def _get_conn():
 
 
 def _init_db():
-    """Create the entries table if it doesn't exist yet."""
+    """Create the entries table if it doesn't exist yet, and migrate if needed."""
     with _get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -42,8 +42,13 @@ def _init_db():
                     timestamp TEXT NOT NULL,
                     situation TEXT,
                     facts     TEXT,
-                    truth     TEXT
+                    truth     TEXT,
+                    steps     TEXT
                 )
+            """)
+            # Migrate older deployments that lack the steps column
+            cur.execute("""
+                ALTER TABLE entries ADD COLUMN IF NOT EXISTS steps TEXT
             """)
 
 
@@ -52,12 +57,12 @@ def load_entries():
         with _get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, timestamp, situation, facts, truth "
+                    "SELECT id, timestamp, situation, facts, truth, steps "
                     "FROM entries ORDER BY timestamp ASC"
                 )
                 return [
-                    {"id": r[0], "timestamp": r[1],
-                     "situation": r[2] or "", "facts": r[3] or "", "truth": r[4] or ""}
+                    {"id": r[0], "timestamp": r[1], "situation": r[2] or "",
+                     "facts": r[3] or "", "truth": r[4] or "", "steps": r[5] or ""}
                     for r in cur.fetchall()
                 ]
     else:
@@ -72,10 +77,10 @@ def create_entry(entry):
         with _get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO entries (id, timestamp, situation, facts, truth) "
-                    "VALUES (%s, %s, %s, %s, %s)",
-                    (entry["id"], entry["timestamp"],
-                     entry["situation"], entry["facts"], entry["truth"])
+                    "INSERT INTO entries (id, timestamp, situation, facts, truth, steps) "
+                    "VALUES (%s, %s, %s, %s, %s, %s)",
+                    (entry["id"], entry["timestamp"], entry["situation"],
+                     entry["facts"], entry["truth"], entry.get("steps", ""))
                 )
     else:
         entries = load_entries()
@@ -119,6 +124,7 @@ SUGGEST_SYSTEM = (
     "If there is no real problem, one step is enough (e.g. 'Accept the situation and get on with your day'). "
     "If there is a real problem, offer up to three concrete steps. "
     "If the facts are too thin to suggest meaningful action, say so and recommend the person add more context.\n\n"
+    "Write entirely in the first person — use 'I', 'my', 'me'. Never use 'you' or 'your'.\n\n"
     "Return your response as JSON with exactly two fields: "
     "\"truth\" (string, 2-3 sentences) and \"steps\" (array of strings, 0-3 items). "
     "Return only the JSON object — no markdown, no code fences, no other text."
@@ -229,8 +235,9 @@ class Handler(BaseHTTPRequestHandler):
         situation = body.get("situation", "").strip()[:50]
         facts     = body.get("facts", "").strip()
         truth     = body.get("truth", "").strip()
+        steps     = body.get("steps", "").strip()
 
-        if not situation and not facts and not truth:
+        if not situation and not facts and not truth and not steps:
             self.send_json({"error": "Entry is empty"}, 400)
             return
 
@@ -240,6 +247,7 @@ class Handler(BaseHTTPRequestHandler):
             "situation": situation,
             "facts":     facts,
             "truth":     truth,
+            "steps":     steps,
         }
         create_entry(entry)
         self.send_json(entry, 201)
