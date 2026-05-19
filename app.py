@@ -274,7 +274,11 @@ if __name__ == "__main__":
     on_cloud  = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RENDER"))
 
     if DATABASE_URL:
-        _init_db()
+        try:
+            _init_db()
+            print("Database initialised.")
+        except Exception as e:
+            print(f"WARNING: Database init failed: {e}")
 
     print(f"Russell Journal running on port {port}")
 
