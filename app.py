@@ -1,3 +1,5 @@
+import base64
+import hmac
 import json
 import os
 import socket
@@ -15,6 +17,31 @@ if os.path.exists(_env_path):
             if _line and not _line.startswith("#") and "=" in _line:
                 _k, _, _v = _line.partition("=")
                 os.environ.setdefault(_k.strip(), _v.strip())
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+# Every route is behind HTTP Basic auth. There is no anonymous access: if
+# AUTH_PASSWORD is unset the app refuses to start rather than serving openly.
+
+AUTH_USER     = os.environ.get("AUTH_USER", "russell")
+AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD")
+
+# Same-origin by default — the front end is served from this app, so no CORS
+# headers are needed. Set ALLOWED_ORIGIN only if something else must call the API.
+ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN")
+
+
+def _credentials_ok(header):
+    """Constant-time check of an Authorization: Basic header."""
+    if not AUTH_PASSWORD or not header or not header.startswith("Basic "):
+        return False
+    try:
+        decoded = base64.b64decode(header[6:].strip()).decode("utf-8")
+    except Exception:
+        return False
+    user, _, password = decoded.partition(":")
+    return (hmac.compare_digest(user, AUTH_USER)
+            and hmac.compare_digest(password, AUTH_PASSWORD))
+
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 # On Railway: DATABASE_URL is set automatically when you add a Postgres addon.
@@ -169,12 +196,32 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
+    def authorised(self):
+        """Allow the request through, or send a 401 and return False."""
+        if _credentials_ok(self.headers.get("Authorization")):
+            return True
+        body = json.dumps({"error": "Unauthorised."}).encode("utf-8")
+        self.send_response(401)
+        self.send_header("WWW-Authenticate", 'Basic realm="Russell Journal"')
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", len(body))
+        self.end_headers()
+        self.wfile.write(body)
+        return False
+
+    def send_cors(self):
+        if ALLOWED_ORIGIN:
+            self.send_header("Access-Control-Allow-Origin", ALLOWED_ORIGIN)
+            self.send_header("Access-Control-Allow-Credentials", "true")
+            self.send_header("Vary", "Origin")
+
     def send_json(self, data, status=200):
         body = json.dumps(data).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", len(body))
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Cache-Control", "no-store")
+        self.send_cors()
         self.end_headers()
         self.wfile.write(body)
 
@@ -184,17 +231,23 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", len(body))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
     def do_OPTIONS(self):
-        self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # Preflights cannot carry credentials, so this stays unauthenticated —
+        # it only advertises what a cross-origin caller may attempt.
+        self.send_response(204)
+        if ALLOWED_ORIGIN:
+            self.send_cors()
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
 
     def do_GET(self):
+        if not self.authorised():
+            return
         path = urlparse(self.path).path
         if path in ("/", "/index.html"):
             self.send_file(
@@ -208,6 +261,8 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        if not self.authorised():
+            return
         path = urlparse(self.path).path
 
         if path == "/api/suggest":
@@ -253,6 +308,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(entry, 201)
 
     def do_DELETE(self):
+        if not self.authorised():
+            return
         parts = urlparse(self.path).path.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "api" and parts[1] == "entries":
             found = remove_entry(parts[2])
@@ -272,6 +329,14 @@ class IPv6Server(HTTPServer):
 if __name__ == "__main__":
     port      = int(os.environ.get("PORT", 5055))
     on_cloud  = bool(os.environ.get("RAILWAY_ENVIRONMENT") or os.environ.get("RENDER"))
+
+    # Fail closed. Serving this app without a password exposes every entry and
+    # lets anyone spend the Anthropic key, so refuse to start instead.
+    if not AUTH_PASSWORD:
+        raise SystemExit(
+            "AUTH_PASSWORD is not set. Set it in Railway (or in .env locally) "
+            "before starting - the journal will not run unauthenticated."
+        )
 
     if DATABASE_URL:
         try:
