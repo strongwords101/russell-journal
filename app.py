@@ -1,4 +1,3 @@
-import base64
 import hmac
 import json
 import os
@@ -6,7 +5,7 @@ import socket
 import threading
 from datetime import datetime
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 # Load .env file if present (local dev only — never committed to git)
 _env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
@@ -19,28 +18,49 @@ if os.path.exists(_env_path):
                 os.environ.setdefault(_k.strip(), _v.strip())
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
-# Every route is behind HTTP Basic auth. There is no anonymous access: if
-# AUTH_PASSWORD is unset the app refuses to start rather than serving openly.
+# Every route sits behind a login page that sets a signed session cookie. There
+# is no anonymous access: if AUTH_PASSWORD is unset the app refuses to start
+# rather than serving openly.
 
 AUTH_USER     = os.environ.get("AUTH_USER", "russell")
 AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD")
+
+COOKIE_NAME = "rj_session"
+SESSION_DAYS = 30
 
 # Same-origin by default — the front end is served from this app, so no CORS
 # headers are needed. Set ALLOWED_ORIGIN only if something else must call the API.
 ALLOWED_ORIGIN = os.environ.get("ALLOWED_ORIGIN")
 
 
-def _credentials_ok(header):
-    """Constant-time check of an Authorization: Basic header."""
-    if not AUTH_PASSWORD or not header or not header.startswith("Basic "):
+def _sign(value):
+    """HMAC a value with the password, so changing the password ends every session."""
+    return hmac.new(AUTH_PASSWORD.encode(), value.encode(), "sha256").hexdigest()
+
+
+def make_session():
+    """Return a cookie value of 'expiry.signature'."""
+    expiry = str(int(datetime.now().timestamp()) + SESSION_DAYS * 86400)
+    return f"{expiry}.{_sign(expiry)}"
+
+
+def session_ok(cookie_header):
+    """Constant-time check of the session cookie, including its expiry."""
+    if not AUTH_PASSWORD or not cookie_header:
         return False
-    try:
-        decoded = base64.b64decode(header[6:].strip()).decode("utf-8")
-    except Exception:
-        return False
-    user, _, password = decoded.partition(":")
-    return (hmac.compare_digest(user, AUTH_USER)
-            and hmac.compare_digest(password, AUTH_PASSWORD))
+    for part in cookie_header.split(";"):
+        name, _, value = part.strip().partition("=")
+        if name != COOKIE_NAME:
+            continue
+        expiry, _, signature = value.partition(".")
+        if not expiry.isdigit() or not hmac.compare_digest(signature, _sign(expiry)):
+            return False
+        return int(expiry) > int(datetime.now().timestamp())
+    return False
+
+
+def password_ok(candidate):
+    return bool(AUTH_PASSWORD) and hmac.compare_digest(candidate, AUTH_PASSWORD)
 
 
 # ── Storage ───────────────────────────────────────────────────────────────────
@@ -196,17 +216,33 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass
 
-    def authorised(self):
-        """Allow the request through, or send a 401 and return False."""
-        if _credentials_ok(self.headers.get("Authorization")):
-            return True
-        body = json.dumps({"error": "Unauthorised."}).encode("utf-8")
-        self.send_response(401)
-        self.send_header("WWW-Authenticate", 'Basic realm="Russell Journal"')
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", len(body))
+    def redirect(self, location, cookie=None):
+        self.send_response(302)
+        self.send_header("Location", location)
+        if cookie:
+            self.send_header("Set-Cookie", cookie)
+        self.send_header("Content-Length", "0")
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
-        self.wfile.write(body)
+
+    def authorised(self):
+        """Allow the request through, or turn it away and return False.
+
+        Page requests are redirected to the login page; API requests get a 401
+        so the front end can react rather than render a redirect as data.
+        """
+        if session_ok(self.headers.get("Cookie")):
+            return True
+        if urlparse(self.path).path.startswith("/api/"):
+            body = json.dumps({"error": "Session expired. Please sign in again."}).encode("utf-8")
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", len(body))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.redirect("/login")
         return False
 
     def send_cors(self):
@@ -246,9 +282,22 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def do_GET(self):
+        path = urlparse(self.path).path
+
+        if path == "/login":
+            self.send_file(
+                os.path.join(os.path.dirname(os.path.abspath(__file__)), "login.html"),
+                "text/html; charset=utf-8"
+            )
+            return
+
+        if path == "/logout":
+            self.redirect("/login", cookie=f"{COOKIE_NAME}=; Path=/; Max-Age=0; HttpOnly")
+            return
+
         if not self.authorised():
             return
-        path = urlparse(self.path).path
+
         if path in ("/", "/index.html"):
             self.send_file(
                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "index.html"),
@@ -261,9 +310,23 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
     def do_POST(self):
+        path = urlparse(self.path).path
+
+        if path == "/login":
+            # Ordinary form post, so password managers recognise it as a login.
+            raw = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode("utf-8")
+            submitted = parse_qs(raw).get("password", [""])[0]
+            if password_ok(submitted):
+                self.redirect("/", cookie=(
+                    f"{COOKIE_NAME}={make_session()}; Path=/; Max-Age={SESSION_DAYS * 86400}; "
+                    "HttpOnly; Secure; SameSite=Lax"
+                ))
+            else:
+                self.redirect("/login?error=1")
+            return
+
         if not self.authorised():
             return
-        path = urlparse(self.path).path
 
         if path == "/api/suggest":
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))

@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Russell Journal</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f7f5f0;
+      --surface: #ffffff;
+      --border: #e2ddd6;
+      --text: #1a1814;
+      --text-muted: #7a746c;
+      --accent: #2c5f2e;
+      --danger: #8b2020;
+      --danger-light: #fdf0f0;
+      --radius: 10px;
+      --shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+
+    body {
+      font-family: Georgia, 'Times New Roman', serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 2rem 1rem 4rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container { width: 100%; max-width: 380px; }
+
+    header { text-align: center; margin-bottom: 2rem; }
+    header h1 { font-size: 1.75rem; font-weight: normal; letter-spacing: -0.01em; }
+    header p { margin-top: 0.5rem; font-size: 0.9rem; color: var(--text-muted); font-style: italic; }
+
+    form {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 2rem;
+      box-shadow: var(--shadow);
+    }
+
+    label {
+      display: block;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 0.5rem;
+    }
+
+    input {
+      width: 100%;
+      font-family: inherit;
+      font-size: 1rem;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.7rem 0.8rem;
+    }
+
+    input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+    button {
+      width: 100%;
+      margin-top: 1.25rem;
+      font-family: inherit;
+      font-size: 0.95rem;
+      color: #fff;
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      padding: 0.75rem;
+      cursor: pointer;
+    }
+
+    button:hover { opacity: 0.92; }
+
+    .error {
+      margin-bottom: 1.25rem;
+      padding: 0.7rem 0.8rem;
+      font-size: 0.88rem;
+      color: var(--danger);
+      background: var(--danger-light);
+      border-radius: 6px;
+    }
+
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Russell Journal</h1>
+      <p>"What are the facts, and what is the truth that the facts bear out?"</p>
+    </header>
+
+    <form method="post" action="/login">
+      <div id="error" class="error hidden">That password was not correct.</div>
+
+      <!-- Hidden username so password managers store this as a normal login -->
+      <label for="username">Username</label>
+      <input id="username" name="username" type="text" value="russell"
+             autocomplete="username" readonly>
+
+      <div style="margin-top:1.25rem;">
+        <label for="password">Password</label>
+        <input id="password" name="password" type="password"
+               autocomplete="current-password" autofocus required>
+      </div>
+
+      <button type="submit">Sign in</button>
+    </form>
+  </div>
+
+  <script>
+    if (new URLSearchParams(location.search).has("error")) {
+      document.getElementById("error").classList.remove("hidden");
+    }
+  </script>
+</body>
+</html>
