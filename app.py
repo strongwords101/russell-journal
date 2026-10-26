@@ -401,12 +401,28 @@ if __name__ == "__main__":
             "before starting - the journal will not run unauthenticated."
         )
 
+    # Fail closed on storage too. Without DATABASE_URL the entry functions fall
+    # back to a JSON file, which on Railway lives on the container's ephemeral
+    # disk and is destroyed by the next deploy. That fallback is for local dev
+    # only: in the cloud, silently writing entries somewhere that cannot survive
+    # is worse than not starting. (Entries were lost this way on 26 Oct 2026.)
+    if on_cloud and not DATABASE_URL:
+        raise SystemExit(
+            "DATABASE_URL is not set. Refusing to start: entries would be written "
+            "to the container's temporary disk and lost on the next deploy. "
+            "Set DATABASE_URL to ${{Postgres.DATABASE_URL}} on this service."
+        )
+
     if DATABASE_URL:
         try:
             _init_db()
-            print("Database initialised.")
+            print("Storage: PostgreSQL (persistent).")
         except Exception as e:
+            if on_cloud:
+                raise SystemExit(f"Database init failed, refusing to start: {e}")
             print(f"WARNING: Database init failed: {e}")
+    else:
+        print(f"Storage: local JSON file at {ENTRIES_FILE} (development only).")
 
     print(f"Russell Journal running on port {port}")
 
